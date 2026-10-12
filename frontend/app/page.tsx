@@ -27,7 +27,7 @@ export default function Home() {
     setError("");
     setVideo("");
     try {
-      const response = await fetch(\`\${API}/generate\`, {
+      const response = await fetch(`${API}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: topic.trim(), style, language, voice, duration }),
@@ -36,7 +36,7 @@ export default function Home() {
       if (!response.ok) throw new Error(data.detail || "تعذّر إنشاء الفيديو.");
       setTitle(data.title);
       setScenes(data.script || []);
-      setVideo(\`\${API}\${data.video_url}\`);
+      setVideo(`${API}${data.video_url}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذّر الاتصال بالخادم.");
     } finally {
