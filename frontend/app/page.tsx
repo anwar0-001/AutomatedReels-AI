@@ -115,7 +115,15 @@ export default function Home() {
             {scenes.map((scene, i) => <li key={i}><span>{scene.text}</span>{scene.visual_query && <p className="mr-6 mt-1 text-sm text-slate-500">الخلفية: {scene.visual_query}</p>}</li>)}
           </ol>
         </section>}
-        <footer className="mt-10 text-center text-sm text-slate-500">AutomatedReels AI · أنشئ محتواك بأسلوبك</footer>
+        <footer className="mt-10 text-center text-sm text-slate-500">
+          <p>AutomatedReels AI · أنشئ محتواك بأسلوبك</p>
+          <nav aria-label="روابط قانونية" className="mt-3 flex flex-wrap justify-center gap-4">
+            <a className="hover:text-violet-400" href="/about">عن المشروع</a>
+            <a className="hover:text-violet-400" href="/contact">تواصل معنا</a>
+            <a className="hover:text-violet-400" href="/privacy">سياسة الخصوصية</a>
+            <a className="hover:text-violet-400" href="/terms">شروط الاستخدام</a>
+          </nav>
+        </footer>
       </div>
     </main>
   );
