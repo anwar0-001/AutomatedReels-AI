@@ -45,7 +45,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic: topic.trim(), style, language, voice, duration }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({ detail: "تعذّر قراءة استجابة الخادم." }));
       if (!response.ok) throw new Error(data.detail || "تعذّر إنشاء الفيديو.");
       setTitle(data.title);
       setScenes(data.script || []);
