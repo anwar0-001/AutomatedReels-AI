@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -17,6 +17,19 @@ export default function Home() {
   const [video, setVideo] = useState("");
   const [title, setTitle] = useState("");
   const [scenes, setScenes] = useState<Scene[]>([]);
+  const [serviceStatus, setServiceStatus] = useState("جارٍ التحقق من الخادم...");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API}/health`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Backend unavailable");
+        return response.json();
+      })
+      .then((data) => setServiceStatus(data.status === "ok" ? "الخادم جاهز لإنشاء الفيديو" : "الخادم غير جاهز"))
+      .catch(() => { if (!controller.signal.aborted) setServiceStatus("الخادم غير متصل — تحقق من تشغيل API"); });
+    return () => controller.abort();
+  }, []);
 
   async function generate() {
     if (topic.trim().length < 3) {
@@ -51,6 +64,7 @@ export default function Home() {
           <p className="mb-3 text-sm font-bold tracking-[0.2em] text-violet-400">AI VIDEO STUDIO</p>
           <h1 className="text-4xl font-black tracking-tight sm:text-5xl">AutomatedReels AI</h1>
           <p className="mt-4 leading-8 text-slate-400">من فكرتك إلى فيديو قصير بالصوت والخلفيات والترجمة — دون الظهور أمام الكاميرا.</p>
+          <p role="status" aria-live="polite" className="mt-3 inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-slate-300">{serviceStatus}</p>
         </header>
 
         <section className="space-y-6 rounded-3xl border border-white/10 bg-white/[0.04] p-5 sm:p-8">
