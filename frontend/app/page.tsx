@@ -26,7 +26,7 @@ export default function Home() {
         if (!response.ok) throw new Error("Backend unavailable");
         return response.json();
       })
-      .then((data) => setServiceStatus(data.status === "ok" ? "الخادم جاهز لإنشاء الفيديو" : "الخادم غير جاهز"))
+      .then((data) => setServiceStatus(data.generation_ready ? "الخادم جاهز لإنتاج الفيديو" : "الخادم متصل؛ يلزم إعداد: " + (data.missing_requirements || []).join("، ")))
       .catch(() => { if (!controller.signal.aborted) setServiceStatus("الخادم غير متصل — تحقق من تشغيل API"); });
     return () => controller.abort();
   }, []);
