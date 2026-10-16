@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -218,8 +219,7 @@ def health():
 @app.post("/generate")
 async def generate(req: GenerateRequest):
     job_id = uuid.uuid4().hex[:12]
-    work = OUTPUT / job_id
-    work.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix=f"automatedreels-{job_id}-"))
     try:
         check_tools()
         script = await asyncio.to_thread(create_script, req.topic, req.language, req.style, req.duration)
@@ -259,6 +259,9 @@ async def generate(req: GenerateRequest):
     except Exception as exc:
         print(f"[{job_id}] generation failed: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=500, detail="تعذّر إنشاء الفيديو. راجع سجل الخادم وإعدادات المفاتيح.") from exc
+    finally:
+        # Keep temporary narration, source clips, and caption files out of the public /videos directory.
+        shutil.rmtree(work, ignore_errors=True)
 
 
 if __name__ == "__main__":
