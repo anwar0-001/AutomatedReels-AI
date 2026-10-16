@@ -56,3 +56,13 @@ npm run dev
 
 ## النشر
 الواجهة يمكن نشرها على Vercel، لكن يجب تعيين `NEXT_PUBLIC_API_URL` إلى عنوان HTTPS لخادم عام. الخادم يحتاج FFmpeg ومساحة تخزين ومعالجة خلفية؛ قد لا تناسبه خطط الاستضافة المجانية ذات الحدود الصارمة. Dockerfile مرفق كنقطة بداية، وليس ضماناً أن مزوداً بعينه يقدم استضافة مجانية دائمة.
+
+
+## Recent reliability and usability updates
+
+- The studio checks API readiness and reports missing configuration without exposing credential values.
+- The API validates supported languages, styles, and voice options.
+- Source clips, narration, and caption intermediates are created outside the public video directory and removed when generation finishes.
+- Export the generated narration and visual prompts as a text file alongside the final MP4.
+
+Video generation still requires the Groq and Pexels API keys plus FFmpeg and ffprobe on the backend host.
