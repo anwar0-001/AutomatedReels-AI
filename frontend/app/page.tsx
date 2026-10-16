@@ -57,6 +57,21 @@ export default function Home() {
     }
   }
 
+  function downloadScript() {
+    const lines = [title, ""];
+    scenes.forEach((scene, index) => {
+      let line = (index + 1) + ". " + scene.text;
+      if (scene.visual_query) line += "\n   الخلفية: " + scene.visual_query;
+      lines.push(line);
+    });
+    const objectUrl = URL.createObjectURL(new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = "automatedreels-script.txt";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
   return (
     <main className="min-h-screen px-4 py-10 sm:px-8">
       <div className="mx-auto max-w-3xl">
@@ -123,7 +138,10 @@ export default function Home() {
         {video && <section className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className="mb-4 text-2xl font-bold">{title}</h2>
           <video src={video} controls playsInline className="mx-auto max-h-[70vh] rounded-xl bg-black" />
-          <a href={video} download="automatedreels.mp4" className="mt-5 block rounded-xl bg-white px-5 py-3 text-center font-bold text-black">تنزيل MP4</a>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <a href={video} download="automatedreels.mp4" className="rounded-xl bg-white px-5 py-3 text-center font-bold text-black">تنزيل MP4</a>
+            <button onClick={downloadScript} className="rounded-xl border border-white/15 px-5 py-3 text-center font-bold text-white hover:bg-white/10">تنزيل السكريبت TXT</button>
+          </div>
           <h3 className="mb-3 mt-6 font-bold">السكريبت والمشاهد</h3>
           <ol className="list-inside list-decimal space-y-3 text-slate-300">
             {scenes.map((scene, i) => <li key={i}><span>{scene.text}</span>{scene.visual_query && <p className="mr-6 mt-1 text-sm text-slate-500">الخلفية: {scene.visual_query}</p>}</li>)}
