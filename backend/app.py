@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import edge_tts
 import requests
@@ -41,9 +42,9 @@ app.mount("/videos", StaticFiles(directory=str(OUTPUT)), name="videos")
 
 class GenerateRequest(BaseModel):
     topic: str = Field(min_length=3, max_length=500)
-    language: str = Field(default="Arabic", max_length=30)
-    style: str = Field(default="facts", max_length=40)
-    voice: str = Field(default="ar-SA-HamedNeural", max_length=80)
+    language: Literal["Arabic", "English", "French"] = "Arabic"
+    style: Literal["facts", "horror", "motivation", "stories", "qa"] = "facts"
+    voice: Literal["ar-SA-HamedNeural", "ar-SA-ZariyahNeural", "en-US-GuyNeural", "en-US-JennyNeural", "fr-FR-HenriNeural"] = "ar-SA-HamedNeural"
     duration: int = Field(default=30, ge=15, le=60)
     music: bool = False
 
@@ -213,7 +214,21 @@ def concat_scenes(scene_files: list[Path], destination: Path, work: Path):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "AutomatedReels AI", "version": "0.1.0"}
+    missing = []
+    if not GROQ_KEY:
+        missing.append("GROQ_API_KEY")
+    if not PEXELS_KEY:
+        missing.append("PEXELS_API_KEY")
+    for tool in ("ffmpeg", "ffprobe"):
+        if not shutil.which(tool):
+            missing.append(tool)
+    return {
+        "status": "ok",
+        "generation_ready": not missing,
+        "missing_requirements": missing,
+        "service": "AutomatedReels AI",
+        "version": "0.1.0",
+    }
 
 
 @app.post("/generate")
