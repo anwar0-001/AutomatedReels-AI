@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 import json
 import os
 import re
@@ -6,13 +7,16 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from threading import Lock
+from time import monotonic
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Literal
 
 import edge_tts
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -28,6 +32,64 @@ GROQ_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 PEXELS_KEY = os.getenv("PEXELS_API_KEY", "")
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+GENERATE_RATE_LIMIT = max(1, int(os.getenv("GENERATE_RATE_LIMIT", "3")))
+GENERATE_RATE_WINDOW_SECONDS = max(1, int(os.getenv("GENERATE_RATE_WINDOW_SECONDS", "900")))
+MAX_PEXELS_VIDEO_BYTES = max(1, int(os.getenv("MAX_PEXELS_VIDEO_BYTES", str(100 * 1024 * 1024))))
+OUTPUT_RETENTION_SECONDS = max(60, int(os.getenv("OUTPUT_RETENTION_SECONDS", str(7 * 24 * 60 * 60))))
+MAX_CONCURRENT_GENERATIONS = max(1, int(os.getenv("MAX_CONCURRENT_GENERATIONS", "1")))
+RATE_LIMIT_MAX_CLIENTS = 10_000
+_rate_buckets: dict[str, deque[float]] = {}
+_rate_lock = Lock()
+_generation_slots = asyncio.Semaphore(MAX_CONCURRENT_GENERATIONS)
+
+
+def generation_retry_after(client_key: str, now: float | None = None) -> int:
+    """Consume one in-process generation slot for a client, or return retry seconds."""
+    current = monotonic() if now is None else now
+    cutoff = current - GENERATE_RATE_WINDOW_SECONDS
+    with _rate_lock:
+        bucket = _rate_buckets.get(client_key)
+        if bucket is None:
+            if len(_rate_buckets) >= RATE_LIMIT_MAX_CLIENTS:
+                for key, events in list(_rate_buckets.items()):
+                    while events and events[0] <= cutoff:
+                        events.popleft()
+                    if not events:
+                        _rate_buckets.pop(key, None)
+                if len(_rate_buckets) >= RATE_LIMIT_MAX_CLIENTS:
+                    return GENERATE_RATE_WINDOW_SECONDS
+            bucket = deque()
+            _rate_buckets[client_key] = bucket
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        if len(bucket) >= GENERATE_RATE_LIMIT:
+            return max(1, int(bucket[0] + GENERATE_RATE_WINDOW_SECONDS - current + 0.999))
+        bucket.append(current)
+        return 0
+
+
+def cleanup_expired_outputs(output_dir: Path = OUTPUT, now: float | None = None) -> int:
+    """Remove generated MP4s past the documented retention period."""
+    if now is None:
+        import time
+        current = time.time()
+    else:
+        current = now
+    removed = 0
+    for video in output_dir.glob("*.mp4"):
+        try:
+            if current - video.stat().st_mtime > OUTPUT_RETENTION_SECONDS:
+                video.unlink()
+                removed += 1
+        except FileNotFoundError:
+            continue
+    return removed
+
+
+def is_allowed_pexels_video_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (host == "pexels.com" or host.endswith(".pexels.com"))
 
 app = FastAPI(title="AutomatedReels AI", version="0.1.0")
 app.add_middleware(
@@ -126,11 +188,21 @@ def fetch_pexels_video(query: str, destination: Path) -> None:
     if not choices:
         raise RuntimeError(f"لم نعثر على خلفية فيديو: {query}")
     choices.sort(reverse=True)
-    with requests.get(choices[0][1], stream=True, timeout=(15, 90)) as response:
+    video_url = choices[0][1]
+    if not is_allowed_pexels_video_url(video_url):
+        raise RuntimeError("رابط الفيديو المرجع من Pexels غير مسموح.")
+    with requests.get(video_url, stream=True, timeout=(15, 90)) as response:
         response.raise_for_status()
+        content_length = response.headers.get("content-length")
+        if content_length and int(content_length) > MAX_PEXELS_VIDEO_BYTES:
+            raise RuntimeError("حجم مقطع الخلفية يتجاوز الحد المسموح.")
+        written = 0
         with destination.open("wb") as out:
             for chunk in response.iter_content(256 * 1024):
                 if chunk:
+                    written += len(chunk)
+                    if written > MAX_PEXELS_VIDEO_BYTES:
+                        raise RuntimeError("حجم مقطع الخلفية يتجاوز الحد المسموح.")
                     out.write(chunk)
 
 
@@ -232,10 +304,20 @@ def health():
 
 
 @app.post("/generate")
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest, request: Request):
+    client_key = request.client.host if request.client else "unknown"
+    retry_after = generation_retry_after(client_key)
+    if retry_after:
+        raise HTTPException(status_code=429, detail="وصلت إلى حد إنشاء الفيديوهات مؤقتاً. حاول لاحقاً.",
+                            headers={"Retry-After": str(retry_after)})
+    if _generation_slots.locked():
+        raise HTTPException(status_code=429, detail="هناك عملية إنشاء أخرى قيد التنفيذ. حاول لاحقاً.",
+                            headers={"Retry-After": "30"})
+    await _generation_slots.acquire()
     job_id = uuid.uuid4().hex[:12]
     work = Path(tempfile.mkdtemp(prefix=f"automatedreels-{job_id}-"))
     try:
+        cleanup_expired_outputs()
         check_tools()
         script = await asyncio.to_thread(create_script, req.topic, req.language, req.style, req.duration)
         scene_audio, scene_video, durations = [], [], []
@@ -266,17 +348,15 @@ async def generate(req: GenerateRequest):
             "status": "completed"
         }
     except requests.HTTPError as exc:
-        print(f"[{job_id}] upstream HTTP error: {exc}")
         raise HTTPException(status_code=502, detail="رفضت إحدى خدمات API الطلب. تحقق من المفاتيح والحصص.") from exc
     except subprocess.CalledProcessError as exc:
-        print(f"[{job_id}] FFmpeg error: {exc.stderr}")
         raise HTTPException(status_code=500, detail="فشل FFmpeg. تحقق من تثبيته ودعم subtitles/libass.") from exc
     except Exception as exc:
-        print(f"[{job_id}] generation failed: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=500, detail="تعذّر إنشاء الفيديو. راجع سجل الخادم وإعدادات المفاتيح.") from exc
     finally:
         # Keep temporary narration, source clips, and caption files out of the public /videos directory.
         shutil.rmtree(work, ignore_errors=True)
+        _generation_slots.release()
 
 
 if __name__ == "__main__":
