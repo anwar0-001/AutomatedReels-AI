@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 os.environ["OUTPUT_DIR"] = tempfile.mkdtemp(prefix="automatedreels-tests-")
@@ -15,6 +15,7 @@ from app import (  # noqa: E402
     cleanup_expired_outputs,
     generation_retry_after,
     is_allowed_pexels_video_url,
+    get_pexels_video_response,
     _rate_buckets,
     _rate_lock,
     _generation_slots,
@@ -43,6 +44,29 @@ class GenerationGuardTests(unittest.TestCase):
         for url in ("http://videos.pexels.com/a.mp4", "https://127.0.0.1/a.mp4",
                     "https://pexels.com.attacker.example/a.mp4", "file:///etc/passwd"):
             self.assertFalse(is_allowed_pexels_video_url(url))
+
+    def test_video_download_revalidates_redirect_host(self):
+        redirect = SimpleNamespace(
+            status_code=302, headers={"location": "https://cdn.pexels.com/clip.mp4"},
+            close=Mock(),
+        )
+        final = SimpleNamespace(status_code=200, headers={}, close=Mock())
+        with patch("app.requests.get", side_effect=[redirect, final]) as get:
+            self.assertIs(get_pexels_video_response("https://videos.pexels.com/clip.mp4"), final)
+        redirect.close.assert_called_once()
+        self.assertEqual(get.call_count, 2)
+        self.assertTrue(all(call.kwargs["allow_redirects"] is False for call in get.call_args_list))
+
+    def test_video_download_rejects_redirect_to_private_host(self):
+        redirect = SimpleNamespace(
+            status_code=302, headers={"location": "http://127.0.0.1/admin"},
+            close=Mock(),
+        )
+        with patch("app.requests.get", return_value=redirect) as get:
+            with self.assertRaises(RuntimeError):
+                get_pexels_video_response("https://videos.pexels.com/clip.mp4")
+        redirect.close.assert_called_once()
+        get.assert_called_once()
 
     def test_expired_outputs_are_removed_but_recent_ones_remain(self):
         with tempfile.TemporaryDirectory() as folder:
