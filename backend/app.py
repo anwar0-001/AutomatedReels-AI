@@ -9,7 +9,7 @@ import tempfile
 import uuid
 from threading import Lock
 from time import monotonic
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from pathlib import Path
 from typing import Literal
 
@@ -90,6 +90,25 @@ def is_allowed_pexels_video_url(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     return parsed.scheme == "https" and (host == "pexels.com" or host.endswith(".pexels.com"))
+
+def get_pexels_video_response(url: str):
+    """Fetch a Pexels clip without following redirects to untrusted hosts."""
+    redirect_statuses = {301, 302, 303, 307, 308}
+    current_url = url
+    for _ in range(4):
+        if not is_allowed_pexels_video_url(current_url):
+            raise RuntimeError("رابط إعادة التوجيه من Pexels غير مسموح.")
+        response = requests.get(
+            current_url, stream=True, timeout=(15, 90), allow_redirects=False
+        )
+        if response.status_code not in redirect_statuses:
+            return response
+        location = response.headers.get("location")
+        response.close()
+        if not location:
+            raise RuntimeError("رابط إعادة التوجيه من Pexels مفقود.")
+        current_url = urljoin(current_url, location)
+    raise RuntimeError("تجاوز رابط Pexels عدد التحويلات المسموح.")
 
 app = FastAPI(title="AutomatedReels AI", version="0.1.0")
 app.add_middleware(
@@ -191,7 +210,7 @@ def fetch_pexels_video(query: str, destination: Path) -> None:
     video_url = choices[0][1]
     if not is_allowed_pexels_video_url(video_url):
         raise RuntimeError("رابط الفيديو المرجع من Pexels غير مسموح.")
-    with requests.get(video_url, stream=True, timeout=(15, 90)) as response:
+    with get_pexels_video_response(video_url) as response:
         response.raise_for_status()
         content_length = response.headers.get("content-length")
         if content_length and int(content_length) > MAX_PEXELS_VIDEO_BYTES:
