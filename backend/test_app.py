@@ -45,9 +45,10 @@ class GenerationGuardTests(unittest.TestCase):
             recent = Path(folder) / "recent.mp4"
             old.write_bytes(b"old")
             recent.write_bytes(b"recent")
+            now = OUTPUT_RETENTION_SECONDS + 200.0
             os.utime(old, (100.0, 100.0))
-            os.utime(recent, (950.0, 950.0))
-            removed = cleanup_expired_outputs(Path(folder), now=1000.0)
+            os.utime(recent, (now - 100.0, now - 100.0))
+            removed = cleanup_expired_outputs(Path(folder), now=now)
             self.assertEqual(removed, 1)
             self.assertFalse(old.exists())
             self.assertTrue(recent.exists())
