@@ -1,6 +1,9 @@
+import asyncio
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ["OUTPUT_DIR"] = tempfile.mkdtemp(prefix="automatedreels-tests-")
@@ -14,6 +17,8 @@ from app import (  # noqa: E402
     is_allowed_pexels_video_url,
     _rate_buckets,
     _rate_lock,
+    _generation_slots,
+    generate,
 )
 
 
@@ -52,6 +57,18 @@ class GenerationGuardTests(unittest.TestCase):
             self.assertEqual(removed, 1)
             self.assertFalse(old.exists())
             self.assertTrue(recent.exists())
+
+
+
+class GenerationSetupFailureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_temp_directory_failure_releases_generation_slot(self):
+        request = SimpleNamespace(client=SimpleNamespace(host="tempdir-failure-test"))
+        with patch("app.tempfile.mkdtemp", side_effect=OSError("disk unavailable")):
+            with self.assertRaises(Exception):
+                await generate(GenerateRequest(topic="valid topic"), request)
+
+        await asyncio.wait_for(_generation_slots.acquire(), timeout=0.1)
+        _generation_slots.release()
 
 
 if __name__ == "__main__":
