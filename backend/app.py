@@ -315,13 +315,15 @@ async def generate(req: GenerateRequest, request: Request):
                             headers={"Retry-After": "30"})
     await _generation_slots.acquire()
     job_id = uuid.uuid4().hex[:12]
-    work = Path(tempfile.mkdtemp(prefix=f"automatedreels-{job_id}-"))
+    work: Path | None = None
     try:
+        work = Path(tempfile.mkdtemp(prefix=f"automatedreels-{job_id}-"))
         cleanup_expired_outputs()
         check_tools()
         script = await asyncio.to_thread(create_script, req.topic, req.language, req.style, req.duration)
         scene_audio, scene_video, durations = [], [], []
         for index, scene in enumerate(script["scenes"]):
+            assert work is not None
             audio = work / f"voice_{index:02}.mp3"
             bg = work / f"background_{index:02}.mp4"
             ass = work / f"captions_{index:02}.ass"
@@ -355,7 +357,8 @@ async def generate(req: GenerateRequest, request: Request):
         raise HTTPException(status_code=500, detail="تعذّر إنشاء الفيديو. راجع سجل الخادم وإعدادات المفاتيح.") from exc
     finally:
         # Keep temporary narration, source clips, and caption files out of the public /videos directory.
-        shutil.rmtree(work, ignore_errors=True)
+        if work is not None:
+            shutil.rmtree(work, ignore_errors=True)
         _generation_slots.release()
 
 
