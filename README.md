@@ -66,3 +66,9 @@ npm run dev
 - Export the generated narration and visual prompts as a text file alongside the final MP4.
 
 Video generation still requires the Groq and Pexels API keys plus FFmpeg and ffprobe on the backend host.
+
+## حماية موارد التوليد
+- يحدد الخادم افتراضياً إنشاء الفيديو بثلاثة طلبات لكل عنوان عميل خلال 15 دقيقة، وبعملية واحدة متزامنة لكل عامل.
+- تقبل تنزيلات الخلفية HTTPS من نطاقات Pexels فقط، بحد أقصى 100 MiB للملف.
+- تُحذف ملفات MP4 الأقدم من سبعة أيام عند بدء عملية إنشاء لاحقة.
+- هذه الحدود داخل ذاكرة عامل واحد وليست مصادقة أو حصة موزعة؛ لا تفتح API مباشرة للإنترنت. يلزم وضعه خلف بوابة مصادقة وتحديد معدل مشترك قبل الإطلاق العام، وإضافة طابور وتخزين مناسبين عند تعدد العمال.
